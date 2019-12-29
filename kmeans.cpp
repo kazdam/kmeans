@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <algorithm>
 #include <random>
 #include <sstream>
@@ -12,10 +13,16 @@
 #include "kmeans.hpp"
 
 using std::vector;
+using std::map;
+using std::unordered_map;
 using std::string;
 using std::stringstream;
+using std::ostream;
+using std::setw;
 using std::cout;
 using std::endl;
+using std::sqrt;
+using std::pow;
 
 namespace kmeans {
 
@@ -23,7 +30,7 @@ namespace kmeans {
   {
     c.clear();
     for( auto& i : b ) {
-      c.push_back( centroid{ i.name, i.x, i.y } );
+      c.emplace_back( i.name, i.x, i.y );
     }
   }
 
@@ -37,11 +44,38 @@ namespace kmeans {
     cout << endl;
   }
 
-  void print_points ( ofstream& o, points_t&p ) {
-    for( auto& i : p  ) {
-      o << i.name << " " << i.x << " " << i.y << " " << " " << i.index << endl;
+  void print_summary ( ostream& o, centroids_t& s, points_t&p ) {
+    map< centroid, points_t, centroid_compare_function > m;
+    //unordered_map< centroid, points_t, centroid_hash_function > m;
+    for( auto& i : p ) {
+      // int index;
+      // stringstream name( i.index );
+      // name >> index;
+      int index = std::atoi( i.index.c_str() );
+      centroid& t = s[ index ];
+      m[ t ].push_back( i );
+      // m[ t ].emplace_back( i );
     }
-    cout << endl;
+    o << "Centroid Summary:" << endl;
+    for( auto& j : m ) {
+      const centroid& c = j.first;
+      const points_t& p = j.second;
+      o << setw(2) << c.name << ": (" << setw(9) << c.x << ", "
+        << setw(9) << c.y << ") has " << setw(5) << p.size() << " members" << endl;
+    }
+    o << endl;
+    // for( auto& c : s ) {
+    //   o << setw(2) << c.name << ": (" << setw(9) << c.x << ", "
+    //     << setw(9) << c.y << ") has " << setw(5) << c.points.size() << " members" << endl;
+    // }
+    // o << endl;
+  }
+
+  void print_points ( ostream& o, points_t&p ) {
+    for( auto& i : p  ) {
+      o << i.name << " " << i.x << " " << i.y << " "
+        << i.index << " " << i.distance << endl;
+    }
   }
 
   void sort_centroids ( centroids_t& c )
@@ -49,6 +83,13 @@ namespace kmeans {
     sort( c.begin(), c.end(), []( const centroid& a, const centroid& b ) {
         return a.x == b.x ? a.y < b.y : a.x < b.x;
       } );
+  }
+
+  void clear_centroid_points ( centroids_t& c )
+  {
+    for( auto& i : c ) {
+      i.points.clear();
+    }
   }
 
   void print_centroids ( centroids_t& c ) {
@@ -62,7 +103,7 @@ namespace kmeans {
     cout << endl;
   }
 
-  void print_centroids ( ofstream& o, centroids_t& c ) {
+  void print_centroids ( ostream& o, centroids_t& c ) {
     for( auto& i : c  ) {
       o << i.name << " " << i.x << " " << i.y << endl;
     }
@@ -84,66 +125,59 @@ namespace kmeans {
       yl = std::min( i.y, yl );
       yh = std::max( i.y, yh );
     }
-    cout << "xl=" << xl << " xh=" << xh <<
-      " yl=" << yl << " yh=" << yh << endl;
     std::uniform_int_distribution<> xdis( xl, xh );
     std::uniform_int_distribution<> ydis( yl, yh );
     for( unsigned int i = 0; i < k; ++i ) {
-      stringstream name;
-      name << i;
-      c.push_back( { name.str(), xdis( gen ), ydis( gen ) } );
+      // stringstream name;
+      // name << i;
+      // c.push_back( { name.str(), xdis( gen ), ydis( gen ) } );
+      string name = std::to_string( i );
+      c.push_back( { name, xdis( gen ), ydis( gen ) } );
     }
   }
 
   void assignment ( points_t& p, centroids_t& c )
   {
-    sort_centroids( c );
+    clear_centroid_points( c );
     for( auto& i : p ) {
       vector< float > dist;
       for( auto &j : c ) {
-        float distance =
-          std::sqrt( std::pow( i.x - j.x, 2 ) +
-                     std::pow( i.y - j.y, 2 ) );
+        float distance = sqrt( pow( i.x - j.x, 2 ) + pow( i.y - j.y, 2 ) );
         dist.push_back( distance );
       }
       float m = std::numeric_limits<float>::max();
-      long   l = std::numeric_limits<long>::max();
+      long  l = std::numeric_limits<long>::max();
       for( unsigned long k = 0; k < c.size(); ++k ) {
         if( dist[k] < m ) {
           m = dist[k];
           l = k;
         }
       }
-      // l is the index pointing to the nearest centroid for a given point
-      i.index = c[l].name;
-      // m is the distance to the nearest centroid for a given point
-      i.distance = m;
+      if( l != std::numeric_limits<long>::max() ) {
+        // l is the index pointing to the nearest centroid for a given point
+        i.index = c[l].name;
+        // m is the distance to the nearest centroid for a given point
+        i.distance = m;
+        // add this point to the centroid list of points
+        c[l].points.push_back( i );
+      }
     }
   }
 
-  void update ( points_t& p, centroids_t& c )
+  void update ( centroids_t& c, unsigned int limit )
   {
-    for( unsigned long i = 0; i < c.size(); ++i ) {
+    for( auto& i : c ) {
       long xs = 0;
       long ys = 0;
-      int n =  0;
-      for( auto &j : p ) {
-        if( j.index == c[i].name ) {
-          xs += j.x;
-          ys += j.y;
-          n++;
-        }
+      for( auto& j : i.points ) {
+        xs += j.x;
+        ys += j.y;
       }
-      //cout << "centroid: ( " << c[i].x << ", " << c[i].y << " ) --> ";
-      if( n != 0 ) {
-        long x = (long) (xs / (float) n);
-        long y = (long) (ys / (float) n);
-        //cout << "( " << x << ", " << y << " )" << endl;
-        c[i].x = x; c[i].y = y;
-      } else {
-        //cout << "( " << c[i].x << ", " << c[i].y << " )" << endl;
+      if( i.points.size() > 0 ) {
+        long x = (long) (xs / (float) i.points.size() );
+        long y = (long) (ys / (float) i.points.size() );
+        i.x = x; i.y = y;       // update centroid location with average
       }
-    
     }
   }
 
@@ -156,24 +190,27 @@ namespace kmeans {
     return compare;
   }
 
-  void run ( unsigned int k, points_t& p, centroids_t& c )
+  unsigned int run ( unsigned int k, points_t& p, centroids_t& c )
   {
-    int max_iter = 100;
+    unsigned int max_iter = 100;
+    unsigned int limit = 4096;
   
-    centroids_t temp;
+    centroids_t t;
     initialize( p, c, k );
     //print_centroids( c ) ;
+    //sort_centroids( c );
     assignment( p, c );
-    int iter = 0;
+    unsigned int iter = 0;
     while( iter < max_iter ) {
-      cout << "iter=" << iter << endl;
-      copy_centroids( c, temp );
-      update( p, c );
+      copy_centroids( c, t );   // copy c to t
+      update( c, limit );
       assignment( p, c );
       iter++;
-      if( compare_centroids( c, temp ) )
+      // if centroids have stopped moving (compares to saved t)
+      if( compare_centroids( c, t ) )
         break;
     }
-    cout << "iter=" << iter << endl;
+    //cout << "iter=" << iter << endl;
+    return iter;
   }
 }

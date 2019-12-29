@@ -1,4 +1,5 @@
-CC = c++
+CXX = g++
+CC = g++
 CXXFLAGS = -std=c++11
 
 kmeans: kmeans_main.o kmeans.o read.o
